@@ -8,6 +8,9 @@ from luma.core.render import canvas
 import re
 from PIL import ImageFont
 
+CURRENT_LOW_LIMIT = 15
+CURRENT_HIGH_LIMIT = 55
+
 logger = logging.getLogger(__name__)
 
 def get_serial_number(text):
@@ -82,7 +85,7 @@ class FinalTest(BaochipCIRunner):
     def select_dut_serial(self):
         GPIO.output(PIN_MAPPING['UART_MUX'][0], GPIO.LOW)
 
-    def operator_note(self, text):
+    def operator_note(self, text, start=None):
         bbox = self.font.getbbox(text)
         text_width = bbox[2] - bbox[0]
         text_height = bbox[3] - bbox[1]
@@ -90,9 +93,17 @@ class FinalTest(BaochipCIRunner):
         x = (self.oled.width - text_width) // 2
         y = (self.oled.height - text_height) // 2
 
+        if start:
+            time_text = f"{time.time() - start:0.2f}s"
+            time_bbox = self.font.getbbox(time_text)
+            time_width = time_bbox[2] - time_bbox[0]
+            time_x = (self.oled.width - time_width) // 2
+
         with canvas(self.oled) as draw:
             draw.rectangle(self.oled.bounding_box, outline="white", fill="white")
-            draw.text((x, y), text, font=self.font, fill="black")        
+            draw.text((x, y), text, font=self.font, fill="black")
+            if start:
+                draw.text((time_x, y + text_height), time_text, font=self.font, fill="black")
 
     def run_full_test(self) -> bool:
         logger.info("=" * 80)
@@ -102,12 +113,14 @@ class FinalTest(BaochipCIRunner):
         all_files = self.all_files
 
         try:
+            index = 0            
             self.select_local_serial()
             while True:
                 if GPIO.input(PIN_MAPPING['DUT_GND'][0]) == GPIO.LOW:
                     break
                 time.sleep(0.1)
 
+            start_time = time.time()
             with canvas(self.oled) as draw:
                 draw.text((5, FONT_HEIGHT * 1), "Power on")
             if not self.power_on(with_usb = False):
@@ -118,11 +131,14 @@ class FinalTest(BaochipCIRunner):
                 raise TestFail
 
             # Send audit command
+            logging.info(f"{index} {time.time() - start_time:.2f}s"); index += 1; start_time = time.time()
             with canvas(self.oled) as draw:
                 draw.text((5, FONT_HEIGHT * 1), "Audit")
             self.select_dut_serial()
             time.sleep(0.2)
+            logging.info(f"{index} {time.time() - start_time:.2f}s"); index += 1; start_time = time.time()
             audit_response = self.serial_phy.send_command('audit')
+            logging.info(f"{index} {time.time() - start_time:.2f}s"); index += 1; start_time = time.time()
             self.results['initial_audit'] = audit_response
             if not audit_response:
                 logger.error("No response from audit command")
@@ -131,8 +147,10 @@ class FinalTest(BaochipCIRunner):
             self.sn = get_serial_number(audit_response)
 
             # dabao should always have bootwait enabled coming out of the factory - ensure this is the case
-            self.serial_phy.send_command("bootwait enable", timeout=1, expect_response=False)
+            logging.info(f"{index} {time.time() - start_time:.2f}s"); index += 1; start_time = time.time()
+            self.serial_phy.send_command("bootwait enable", timeout=0.5, expect_response=False)
             self.select_local_serial()
+            logging.info(f"{index} {time.time() - start_time:.2f}s"); index += 1; start_time = time.time()
 
             logging.info("Load test firmware")
             with canvas(self.oled) as draw:
@@ -145,9 +163,11 @@ class FinalTest(BaochipCIRunner):
 
             logging.info("  Find device")
             # Find ACM device
+            logging.info(f"{index} {time.time() - start_time:.2f}s"); index += 1; start_time = time.time()
             acm_path, storage_info = self.device.wait_for_reconnect(
                 wait_acm=True, wait_storage=True, timeout=6
             )
+            logging.info(f"{index} {time.time() - start_time:.2f}s"); index += 1; start_time = time.time()
             if not acm_path:
                 logger.error("Initial serial DUT not found")
                 self.errors += ["Init failure (USB serial)"]
@@ -156,6 +176,7 @@ class FinalTest(BaochipCIRunner):
                 logger.error("Device did not re-enumerate with storage")
                 self.errors += ["Init failure (USB storage)"]
             device_path, _ = storage_info
+            logging.info(f"{index} {time.time() - start_time:.2f}s"); index += 1; start_time = time.time()
 
             # Check volume label
             volume_label = self.device.get_volume_label(device_path)
@@ -163,6 +184,7 @@ class FinalTest(BaochipCIRunner):
                 logger.error(f"Expected volume label 'BAOCHIP', got '{volume_label}'")
                 self.errors += [f"BAOCHIP missing: {volume_label}"]
                 raise TestFail
+            logging.info(f"{index} {time.time() - start_time:.2f}s"); index += 1; start_time = time.time()
             
             # Mount and flash applications
             logging.info("  Copy code")
@@ -183,15 +205,19 @@ class FinalTest(BaochipCIRunner):
                 self.errors += ["Couldn't unmount device"]
                 return TestFail
 
+            logging.info(f"{index} {time.time() - start_time:.2f}s"); index += 1; start_time = time.time()
             logging.info("Operator interaction: BOOT")
-            self.operator_note("==== BOOT ====")
+            operator_timer = time.time()
             while True:
+                self.operator_note("==== BOOT ---> ====", start = operator_timer)
                 if GPIO.input(PIN_MAPPING['DUT_PC13_N'][0]) == GPIO.LOW:
                     break
                 time.sleep(0.1)
             logger.info("boot to baremetal")
+            self.oled.clear()
             with canvas(self.oled) as draw:
-                draw.text((0, 0), "Testing I/O...")
+                draw.text((5, FONT_HEIGHT * 1), "Testing I/O...")
+            logging.info(f"{index} {time.time() - start_time:.2f}s"); index += 1; start_time = time.time()
 
             if False:
                 self.results['bio'] = self.device.send_command(acm_path, "bio", timeout=1)
@@ -202,7 +228,7 @@ class FinalTest(BaochipCIRunner):
                 logger.info("run tests")
                 # self.results['io'] = self.device.send_command(acm_path, "dbtest", timeout=8)
                 # logger.info(self.results['io'])
-                self.results['io_local'] = self.serial_phy.send_command("test dabao", timeout=8)
+                self.results['io_local'] = self.serial_phy.send_command("test dabao", timeout=2)
                 logger.info(self.results['io_local'])
                 if not 'TEST.PASSING' in self.results['io_local']:
                     self.errors += ["I/O test fail"]
@@ -211,33 +237,41 @@ class FinalTest(BaochipCIRunner):
                         self.errors += [details]
                     raise TestFail
             logger.info("Main test completed successfully")
+            logging.info(f"{index} {time.time() - start_time:.2f}s"); index += 1; start_time = time.time()
 
             # Reset device manually
-            self.operator_note("#### RESET ####")
+            logging.info("Operator interaction: RESET")
+            operator_timer = time.time()
             while True:
+                self.operator_note("#### <--- RESET ####", start = operator_timer)
                 if GPIO.input(PIN_MAPPING['DUT_RST'][0]) == GPIO.LOW:
                     break
                 time.sleep(0.1)
             logger.info("reset for OS load")
+            self.oled.clear()
             with canvas(self.oled) as draw:
-                draw.text((0, 0), "Loading OS...")
+                draw.text((5, FONT_HEIGHT * 1), "Loading OS...")
 
+            logging.info(f"{index} {time.time() - start_time:.2f}s"); index += 1; start_time = time.time()
             if not self.boot1_verify_main_and_flash_apps([all_files['apps'], all_files['xous'], all_files['loader']]):
                 self.errors += ["Xous upload error"]
                 self.power_off()
                 self.print_results()
                 return False
+            logging.info(f"{index} {time.time() - start_time:.2f}s"); index += 1; start_time = time.time()
+            with canvas(self.oled) as draw:
+                draw.text((5, FONT_HEIGHT * 1), "Checking OS...")
             if not self.boot1_final_verification():
                 self.errors += ["Final check fail"]
                 self.power_off()
                 self.print_results()
                 return False
+            logging.info(f"{index} {time.time() - start_time:.2f}s"); index += 1; start_time = time.time()
 
             logger.info("=" * 80)
             logger.info(f"    ~~~~~~~~~~ {self.TEST_NAME} Sequence PASSED ~~~~~~~~~~")
             logger.info("=" * 80)
-            self.report_current()
-            self.print_results()
+            # self.print_results() # only needed for debugging
             self.power_off()
             return True
             
@@ -261,13 +295,14 @@ class FinalTest(BaochipCIRunner):
             GPIO.output(self.usb, USB_DIS)
         GPIO.output(self.vbus, VBUS_ENA)
         # fast reading for high current protection
-        time.sleep(0.1)
+        time.sleep(0.02)
         init_current = self.adc.read_current(self.channel)
-        if init_current > 100:
-            logger.error("Short circuit likely")
+        logger.info(f"SC test {init_current:.2f}mA")
+        if init_current > 90:
             GPIO.output(self.usb, USB_DIS)
             GPIO.output(self.vbus, VBUS_DIS)
-            self.errors += [f"Short circuit {init_current}mA"]
+            logger.error("Short circuit likely")
+            self.errors += [f"Short circuit {init_current}mA; abort test!"]
             return False
         else:
             return True
@@ -279,15 +314,15 @@ class FinalTest(BaochipCIRunner):
         if self.init_current is None:
             self.init_current = init_current
         logger.info(f"Initial current: {init_current:0.2f} mA")
-        if init_current > 15 and init_current < 70:
+        if init_current > CURRENT_LOW_LIMIT and init_current < CURRENT_HIGH_LIMIT:
             return True
-        elif init_current <= 15:
+        elif init_current <= CURRENT_LOW_LIMIT:
             logger.error("Current is too low, is there a device plugged in?")
-            self.errors += [f"Low current {init_current:0.2f}mA"]
+            self.errors += [f"Current too low: {init_current:0.2f}mA"]
             return False
         else:
             logger.error("Current is too high! Check for shorted/damaged device")
-            self.errors += [f"High current {init_current:0.2f}mA"]
+            self.errors += [f"Current too high {init_current:0.2f}mA"]
             return False
 
 
@@ -334,7 +369,6 @@ class FinalTest(BaochipCIRunner):
         # Wait for disconnect
         self.device.wait_for_disconnect(acm_path, timeout=5)
         
-        logger.info("Step 2-3 completed successfully")
         return True
     
     def boot1_verify_alt_and_flash_main(self, main_boot_file) -> bool:
@@ -383,7 +417,6 @@ class FinalTest(BaochipCIRunner):
         self.device.send_command(acm_path, "boot", timeout=1, expect_response=False)
         self.device.wait_for_disconnect(acm_path, timeout=5)
         
-        logger.info("Step 4-5 completed successfully")
         return True
     
     def boot1_verify_main_and_flash_apps(self, app_files: List) -> bool:
@@ -406,14 +439,6 @@ class FinalTest(BaochipCIRunner):
             logger.error(f"Expected volume label 'BAOCHIP', got '{volume_label}'")
             return False
         
-        # Run audit
-        if not acm_path:
-            acm_path = self.device.find_acm_device(timeout=5)
-        
-        if acm_path:
-            audit_response = self.device.send_command(acm_path, "audit", timeout=1)
-            self.results['main_boot_audit'] = audit_response
-        
         # Mount and flash applications
         mount_point = self.device.mount_device(device_path)
         if not mount_point:
@@ -430,26 +455,18 @@ class FinalTest(BaochipCIRunner):
             return False
         
         # Send boot command
-        if not acm_path:
-            acm_path = self.device.find_acm_device(timeout=5)
-        
-        if not acm_path:
-            logger.error("Failed to find ACM device for boot command")
-            return False
-        
         self.device.send_command(acm_path, "boot", timeout=1, expect_response=False)
         self.device.wait_for_disconnect(acm_path, timeout=5)
         
-        logger.info("Step 6-7 completed successfully")
         return True
     
     def boot1_final_verification(self) -> bool:
-        """Step 8: Wait for final boot (ACM only), run ver xous"""
+        """Wait for final boot (ACM only), run ver xous"""
         logger.info("\n--- Final Verification ---")
         
         # Wait for ACM only (no storage in final state)
         acm_path, _ = self.device.wait_for_reconnect(
-            wait_acm=True, wait_storage=False, timeout=10
+            wait_acm=True, wait_storage=False, timeout=5
         )
         
         if not acm_path:
@@ -457,13 +474,12 @@ class FinalTest(BaochipCIRunner):
             return False
         
         # Run version command
-        time.sleep(5)
-        ver_response = self.device.send_command(acm_path, "ver xous", timeout=2)
+        time.sleep(1) # just a little time for xous to boot
+        ver_response = self.device.send_command(acm_path, "ver xous", timeout=0.5)
         self.results['final_version'] = ver_response
         
         if not ver_response:
             logger.error("No response from ver xous command")
             return False
         
-        logger.info("Step 8 completed successfully")
         return True

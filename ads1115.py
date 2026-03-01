@@ -126,7 +126,7 @@ class ADS1115:
         """
         # average over N samples to reduce noise
         raw = 0
-        samples = 4
+        samples = 1
         for i in range(samples):
             raw += self.read_adc(channel)
         raw = raw / samples

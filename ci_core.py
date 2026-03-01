@@ -196,7 +196,7 @@ class BaochipDevice:
                 logger.info(f"Found ACM device: {latest['path']} (Serial: {latest['serial']})")
                 return latest['path']
             
-            time.sleep(0.5)
+            time.sleep(0.05)
         
         logger.error(f"ACM device not found within {timeout}s")
         return None
@@ -254,7 +254,7 @@ class BaochipDevice:
                 logger.info(f"Found storage device: {latest['path']} (Serial: {latest['serial']})")
                 return latest['path'], latest['path']
             
-            time.sleep(0.5)
+            time.sleep(0.05)
         
         logger.error(f"Storage device not found within {timeout}s")
         return None
@@ -327,7 +327,6 @@ class BaochipDevice:
             Volume label string or None
         """
         try:
-            time.sleep(3)
             # Use blkid to get filesystem info
             result = subprocess.run(
                 ['sudo', 'blkid', '-s', 'LABEL', '-o', 'value', device_path],
@@ -403,7 +402,6 @@ class BaochipDevice:
         try:
             # Sync first to ensure all writes are complete
             subprocess.run(['sync'], timeout=20)
-            time.sleep(0.5)
             
             result = subprocess.run(
                 ['sudo', 'umount', str(mount_point)],
@@ -468,9 +466,8 @@ class BaochipDevice:
                 logger.error(f"Error copying {source.name}: {e}")
                 success = False
         
-        # Ensure all writes are flushed
-        subprocess.run(['sync'], timeout=timeout)
-        time.sleep(1)
+        # Sync is moved to unmount command
+        # subprocess.run(['sync'], timeout=timeout)
         
         return success
     
@@ -492,7 +489,7 @@ class BaochipDevice:
             if not Path(acm_path).exists():
                 logger.info("Device disconnected")
                 return True
-            time.sleep(0.5)
+            time.sleep(0.25)
         
         logger.warning("Timeout waiting for disconnect")
         return False
@@ -512,9 +509,6 @@ class BaochipDevice:
         """
         logger.info("Waiting for device to re-enumerate...")
         
-        # Give device time to fully disconnect first
-        time.sleep(2)
-        
         acm_path = None
         storage_info = None
         
@@ -532,7 +526,7 @@ class BaochipDevice:
                 logger.info("Device re-enumerated successfully")
                 return acm_path, storage_info
             
-            time.sleep(0.5)
+            time.sleep(0.25)
         
         logger.error("Timeout waiting for re-enumeration")
         return acm_path, storage_info

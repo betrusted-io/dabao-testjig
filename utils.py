@@ -64,7 +64,7 @@ class SerialLogger:
                 for char in full_command:
                     self.ser.write(char.encode('utf-8'))
                     self.ser.flush()
-                    time.sleep(0.15)  # pause for keyboard relay
+                    time.sleep(0.1)  # pause for keyboard relay
                 
                 if expect_response:
                     self.ser.write("\r".encode('utf-8'))
