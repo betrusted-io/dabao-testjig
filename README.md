@@ -1,6 +1,11 @@
 # dabao-testjig
 
-Scripts run on the test jig for dabao testing
+Scripts run on the test jig for dabao testing.
+
+Image will be in "overlay filesystem" which means that all writes are lost
+on reboot. Toggle this by doing:
+
+`sudo raspi-config` then Performance Options->Overlay Filesystem
 
 Manual testing:
 
