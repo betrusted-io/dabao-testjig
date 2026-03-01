@@ -64,7 +64,7 @@ class SerialLogger:
                 for char in full_command:
                     self.ser.write(char.encode('utf-8'))
                     self.ser.flush()
-                    time.sleep(0.25)  # pause for keyboard relay
+                    time.sleep(0.15)  # pause for keyboard relay
                 
                 if expect_response:
                     self.ser.write("\r".encode('utf-8'))
@@ -136,7 +136,7 @@ class SerialLogger:
 #     thread = threading.Thread(target=read_serial, daemon=True)
 #     thread.start()
 
-def wait_for_serial_output(logfile, target_string, timeout=10, instances=1, use_bookends=True, log=False):
+def wait_for_serial_output(logfile, target_string, timeout=5, instances=1, use_bookends=True, log=False):
     if use_bookends:
         target_string = BaochipCIRunner.BOOKEND_START + target_string + ',' + BaochipCIRunner.BOOKEND_END
     start_time = time.time()

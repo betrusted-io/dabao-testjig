@@ -35,21 +35,22 @@ class InternalError(Exception):
 # Format: 'signal_name': GPIO_number
 # Note: Connector is flipped horizontally, so odd pins → even, even → odd
 PIN_MAPPING = {
-    'USB_1': (16, 'out', GPIO.LOW),      # Pin 35 → Pin 36 (flipped) → GPIO 16
-    'VBUS_1': (26, 'out', GPIO.LOW),     # Pin 38 → Pin 37 (flipped) → GPIO 26
+    'USB_1': (16, 'out', GPIO.HIGH), # disabled
+    'VBUS_1': (26, 'out', GPIO.LOW),
     'BUTTON_1': (13, 'in', None),
     'BUTTON_2': (19, 'in', None),
     'UART_MUX': (6, 'out', GPIO.LOW),
-    'OLED_RES': (12, 'out', GPIO.LOW),
-    'DUT_PC13_N': (5, 'out', GPIO.HIGH),
-    'DUT_RST': (0, 'out', GPIO.LOW),
-    'OLED_DC': (1, 'out', GPIO.LOW),
-    'OLED_CS_N': (7, 'out', GPIO.HIGH),
+    # 'OLED_RES': (12, 'out', GPIO.LOW),
+    'DUT_PC13_N': (5, 'in', None),
+    'DUT_RST': (0, 'in', None),
+    # 'OLED_DC': (1, 'out', GPIO.LOW),
+    # 'OLED_CS_N': (7, 'out', GPIO.HIGH),
     'DUT_EN_N': (11, 'out', GPIO.LOW),
-    'OLED_SCK': (8, 'out', GPIO.LOW),
+    # 'OLED_SCK': (8, 'out', GPIO.LOW),
     'LOCAL_PC13_N': (9, 'out', GPIO.LOW),
-    'OLED_MOSI': (25, 'out', GPIO.LOW),
-    'DUT_GND': (20, 'in', None), # used to auto-trigger the tester
+    'LOCAL_RST': (21, 'out', GPIO.LOW),
+    # 'OLED_MOSI': (25, 'out', GPIO.LOW),
+    'DUT_GND': (10, 'in', None), # used to auto-trigger the tester
 
 }
 
@@ -57,6 +58,8 @@ VBUS_ENA = GPIO.HIGH
 VBUS_DIS = GPIO.LOW
 USB_ENA = GPIO.LOW
 USB_DIS = GPIO.HIGH
+
+FONT_HEIGHT=12
 
 def setup_gpio():
     """Initialize GPIO pins as outputs with default LOW state"""
@@ -115,6 +118,9 @@ class BaochipDevice:
     VENDOR_ID = "1d50"
     PRODUCT_ID = "6196"
     PRODUCT_ID_XOUS = "6197"
+
+    PRODUCT_ID_LOCAL = "6666"
+    PRODUCT_ID_LOCAL_XOUS = "6667"
     DEVICE_NAME = "Baochip-1x"
     
     def __init__(self, serial_number: Optional[str] = None, hotplug_callback=None):
@@ -131,7 +137,9 @@ class BaochipDevice:
         self.monitor = pyudev.Monitor.from_netlink(self.context)
         self.monitor.filter_by(subsystem='usb')
         
-    def find_acm_device(self, timeout: float = 10.0) -> Optional[str]:
+    # This has an additional argument of 'Local' that when True, causes 
+    # this to search only for the local baochip, and not the DUT.
+    def find_acm_device(self, timeout: float = 10.0, local=False) -> Optional[str]:
         """
         Find the latest ttyACM device matching our USB vendor/product ID
         
@@ -159,17 +167,28 @@ class BaochipDevice:
                 self.product = product = usb_device.properties.get('ID_MODEL_ID', '').lower()
                 serial = usb_device.properties.get('ID_SERIAL_SHORT', '')
                 
-                if ((vendor == self.VENDOR_ID) or (vendor == self.VENDOR_ID_OLD)) \
-                    and ((product == self.PRODUCT_ID) or (product == self.PRODUCT_ID_XOUS)\
-                         or (product == self.PRODUCT_ID_OLD)):
-                    if self.serial_number and serial != self.serial_number:
-                        continue
-                    
-                    acm_devices.append({
-                        'path': device.device_node,
-                        'serial': serial,
-                        'device': device
-                    })
+                if local:
+                    if (vendor == self.VENDOR_ID) \
+                        and ((product == self.PRODUCT_ID_LOCAL) or (product == self.PRODUCT_ID_LOCAL_XOUS)):
+                        if self.serial_number and serial != self.serial_number:
+                            continue
+                        
+                        acm_devices.append({
+                            'path': device.device_node,
+                            'serial': serial,
+                            'device': device
+                        })
+                else:
+                    if (vendor == self.VENDOR_ID) \
+                        and ((product == self.PRODUCT_ID) or (product == self.PRODUCT_ID_XOUS)):
+                        if self.serial_number and serial != self.serial_number:
+                            continue
+                        
+                        acm_devices.append({
+                            'path': device.device_node,
+                            'serial': serial,
+                            'device': device
+                        })
             
             if acm_devices:
                 # Return the most recently created device
@@ -182,7 +201,7 @@ class BaochipDevice:
         logger.error(f"ACM device not found within {timeout}s")
         return None
     
-    def find_storage_device(self, timeout: float = 10.0) -> Optional[Tuple[str, str]]:
+    def find_storage_device(self, timeout: float = 10.0, local=False) -> Optional[Tuple[str, str]]:
         """
         Find the latest block device matching our USB vendor/product ID
         
@@ -205,19 +224,30 @@ class BaochipDevice:
                 product = usb_device.properties.get('ID_MODEL_ID', '').lower()
                 serial = usb_device.properties.get('ID_SERIAL_SHORT', '')
                 
-                if ((vendor == self.VENDOR_ID) or (vendor == self.VENDOR_ID_OLD)) \
-                    and ((product == self.PRODUCT_ID) or (product == self.PRODUCT_ID_XOUS)\
-                         or (product == self.PRODUCT_ID_OLD)):
-                    if self.serial_number and serial != self.serial_number:
-                        continue
-                    
-                    device_node = device.device_node + '1' # append partition number - this may be brittle
-                    block_devices.append({
-                        'path': device_node,
-                        'serial': serial,
-                        'sys_name': device.sys_name
-                    })
-            
+                if local:
+                    if (vendor == self.VENDOR_ID) \
+                        and ((product == self.PRODUCT_ID_LOCAL) or (product == self.PRODUCT_ID_LOCAL_XOUS)):
+                        if self.serial_number and serial != self.serial_number:
+                            continue
+                        
+                        device_node = device.device_node + '1' # append partition number - this may be brittle
+                        block_devices.append({
+                            'path': device_node,
+                            'serial': serial,
+                            'sys_name': device.sys_name
+                        })
+                else:
+                    if (vendor == self.VENDOR_ID) \
+                        and ((product == self.PRODUCT_ID) or (product == self.PRODUCT_ID_XOUS)):
+                        if self.serial_number and serial != self.serial_number:
+                            continue
+                        
+                        device_node = device.device_node + '1' # append partition number - this may be brittle
+                        block_devices.append({
+                            'path': device_node,
+                            'serial': serial,
+                            'sys_name': device.sys_name
+                        })            
             if block_devices:
                 # Return the most recently created device
                 latest = max(block_devices, key=lambda d: d['sys_name'])
@@ -468,7 +498,7 @@ class BaochipDevice:
         return False
     
     def wait_for_reconnect(self, wait_acm: bool = True, wait_storage: bool = True, 
-                          timeout: float = 30.0) -> Tuple[Optional[str], Optional[Tuple[str, str]]]:
+                          timeout: float = 30.0, local = False) -> Tuple[Optional[str], Optional[Tuple[str, str]]]:
         """
         Wait for device to re-enumerate after a boot command
         
@@ -492,10 +522,10 @@ class BaochipDevice:
         
         while time.time() - start_time < timeout:
             if wait_acm and acm_path is None:
-                acm_path = self.find_acm_device(timeout=3)
+                acm_path = self.find_acm_device(timeout=3, local=local)
             
             if wait_storage and storage_info is None:
-                storage_info = self.find_storage_device(timeout=3)
+                storage_info = self.find_storage_device(timeout=3, local=local)
             
             # Check if we have everything we need
             if (not wait_acm or acm_path) and (not wait_storage or storage_info):

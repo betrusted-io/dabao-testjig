@@ -16,12 +16,22 @@ import shutil
 from ci_core import *
 from dabao_provision import *
 from bdma_fuzz import *
+from finaltest import *
+
+from luma.core.render import canvas
+from luma.core.interface.serial import bitbang
+from luma.oled.device import ssd1322
+import luma.oled.device
+
+VERSION = "03/01/26"
+oled = None
 
 def main(adc):
     parser = argparse.ArgumentParser(description="CI automation script")
     parser.add_argument(
         "--run-test", help="Which test to run",
         choices=[
+            'final-test',
             'dabao-provision',
             'currents',
             'bdma-fuzz',
@@ -31,7 +41,7 @@ def main(adc):
         "--port", type=int, help="Which port to run the test on", choices=[1, 2, 3, 4], default = 1
     )
     parser.add_argument(
-        '--firmware-dir', type=Path, help='Directory containing firmware files (.uf2)'
+        '--firmware-dir', type=Path, help='Directory containing firmware files (.uf2)', default='./images/'
     )
     parser.add_argument(
         "--logfile", type=Path, help="File for output logs", default = 'baochip_ci.log'
@@ -64,6 +74,14 @@ def main(adc):
     logger = logging.getLogger(__name__)
 
     setup_gpio()
+
+    with canvas(oled) as draw:
+        draw.text((0, FONT_HEIGHT * 0), f"Dabao tester ({VERSION}) starting...")
+    
+    GPIO.output(PIN_MAPPING['LOCAL_PC13_N'][0], GPIO.LOW)
+    time.sleep(1)
+    GPIO.output(PIN_MAPPING['LOCAL_PC13_N'][0], GPIO.HIGH)
+
     # board silkscreen is 1-4, but channels are 0-3
     channel = args.port - 1
 
@@ -78,6 +96,42 @@ def main(adc):
     elif args.run_test == "bdma-fuzz":
         test = BdmaFuzz(adc, args.firmware_dir, channel)
         return test.run_full_test()
+    elif args.run_test == 'final-test':
+        test = FinalTest(adc, args.firmware_dir, oled, channel)
+        if len(test.errors) != 0:
+            with canvas(oled) as draw:
+                draw.text((0, FONT_HEIGHT * 0), f"Dabao tester ({VERSION}) INTERNAL ERROR")
+                draw.text((0, FONT_HEIGHT * 1), f"Contact bunnie@baochip.com for support")
+            while True:
+                time.sleep(1)
+
+        while True:
+            with canvas(oled) as draw:
+                draw.text((0, FONT_HEIGHT * 0), f"Dabao tester ({VERSION}) up!")
+                draw.text((0, FONT_HEIGHT * 2), "Insert device to start test...")
+            
+            test.run_full_test()
+            if len(test.errors) != 0:
+                with canvas(oled) as draw:
+                    if test.sn:
+                        draw.text((0, FONT_HEIGHT * 0), f"xxx FAIL FAIL FAIL ({test.sn}) xxx")
+                    else:
+                        draw.text((0, FONT_HEIGHT * 0), f"xxx FAIL FAIL FAIL xxx")
+                    for i, err in enumerate(test.errors):
+                        draw.text((0, FONT_HEIGHT * (i+1)), err)
+            else:
+                with canvas(oled) as draw:
+                    draw.text((0, FONT_HEIGHT * 0), f"~~~~~ PASS ({test.sn}/{test.init_current:.2f}mA) ~~~~~")
+            # wait for device to be removed
+            while True:
+                if GPIO.input(PIN_MAPPING['DUT_GND'][0]) == GPIO.HIGH:
+                    break
+                time.sleep(0.1)
+            test.errors = []
+            test.results = {}
+            test.init_current = None
+            test.sn = None
+
     else:
         print("No test selected")
     return False
@@ -86,6 +140,7 @@ if __name__ == "__main__":
     cleaned_up = False
     try:
         adc = ADS1115()
+        oled = ssd1322(bitbang(SCLK=8, SDA=25, CE=7, DC=1, RST=12))        
         if main(adc):
             exit(0)
     except KeyboardInterrupt:
