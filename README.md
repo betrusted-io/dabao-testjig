@@ -14,3 +14,9 @@ Install into device for autostart:
 `sudo systemctl daemon-reload`
 `sudo systemctl enable testjig`
 `sudo systemctl start testjig`
+
+Reduce journal usage:
+
+In /etc/systemd/journald.conf modify this entry:
+
+`SystemMaxUse=200M`

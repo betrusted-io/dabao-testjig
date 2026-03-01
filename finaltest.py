@@ -103,7 +103,7 @@ class FinalTest(BaochipCIRunner):
             draw.rectangle(self.oled.bounding_box, outline="white", fill="white")
             draw.text((x, y), text, font=self.font, fill="black")
             if start:
-                draw.text((time_x, y + text_height), time_text, font=self.font, fill="black")
+                draw.text((time_x, y + text_height + 8), time_text, font=self.font, fill="black")
 
     def run_full_test(self) -> bool:
         logger.info("=" * 80)
