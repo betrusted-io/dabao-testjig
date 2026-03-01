@@ -1,0 +1,10 @@
+7e190a8e556cae0c98752d3bbef8e72c  bao1x-alt-boot1-presign.img
+cccc9778bdef3d7d64adc8f5e8f004b3  bao1x-alt-boot1.img
+50bce8fd76a1f910621b40553a168c1d  bao1x-alt-boot1.uf2
+1139c9e75a16b362f9486a4cd2766b21  bao1x-boot0-presign.img
+33df6f9f2b4eabd569a125895f8bc1fa  bao1x-boot0.img
+5a6abc19030e363d18499a303cda17a5  bao1x-boot0.uf2
+d9a3be05720e66c03df22b46aa26ca50  bao1x-boot1-presign.img
+9d221ff8b4d7c177c466c3ddbacada3a  bao1x-boot1.img
+eeb465638dfbf02bb6c955ff2df7d0fb  bao1x-boot1.uf2
+d9ac89d1ac75e6aa35f5eee0b9bf076c  bao1x-boot1alt.rpt

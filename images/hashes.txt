@@ -1,0 +1,50 @@
+Reading binary file: /mnt/f/largework/baochip/releases/bao1-feb17/bootloader/bao1x-boot0.img
+Original file size: 93296 bytes
+
+Zero-padding to 131072 bytes...
+Computing SHA512 of padded data...
+
+Parsing SignatureInFlash structure...
+Signed length: 93164 bytes
+Extracted signed data: 92528 bytes (from offset 132)
+Computing SHA512 of signed data...
+
+======================================================================
+RESULTS
+======================================================================
+
+Original file size:     93,296 bytes
+Target size:            131,072 bytes
+Padding added:          37,776 bytes
+
+Padded file SHA512:     a0680a73106600c4ece34f9393fc5c8eed4885e844b1b78b58fb3a8a299a885cd794c667a5e787083bce46bf7aff8d3f4affa6a93a38ba7b507bb0d47c70fa01
+
+Signed data offset:     132 (0x84)
+Signed data length:     93164 bytes
+Signed data SHA512:     563802e7f10fd0ca0a1c700c6313eff624aa57d9cd88d3c33af4b720eff5480432e01c116925a324a96e12d92953d7cb6076ea4557a22058e1a61be4c2b4dee2
+======================================================================
+Reading binary file: /mnt/f/largework/baochip/releases/bao1-feb17/bootloader/bao1x-boot1.img
+Original file size: 195584 bytes
+
+Zero-padding to 262144 bytes...
+Computing SHA512 of padded data...
+
+Parsing SignatureInFlash structure...
+Signed length: 195452 bytes
+Extracted signed data: 194816 bytes (from offset 132)
+Computing SHA512 of signed data...
+
+======================================================================
+RESULTS
+======================================================================
+
+Original file size:     195,584 bytes
+Target size:            262,144 bytes
+Padding added:          66,560 bytes
+
+Padded file SHA512:     a12eb17f37c88e834bb7beef3f5163f232824e8044fcbab3bb37c6ac54d10f78d61ace96da9ebfc03e3cc9514312f22b18a9481747fc0526dc89733789db3927
+
+Signed data offset:     132 (0x84)
+Signed data length:     195452 bytes
+Signed data SHA512:     e42b5aba61d98990ca24f5fc3b6cf012b14ea4d121f9bbe494baf4d9ae854d3ba88cdf26a288b88778826f816dc960c3ffe24b7c919108a3aca90f2dc4551a55
+======================================================================
