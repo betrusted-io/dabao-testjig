@@ -1,0 +1,39 @@
+# Install into /etc/systemd/system/testjig.service
+# 
+# sudo systemctl daemon-reload
+# sudo systemctl enable testjig   # auto-start on boot
+# sudo systemctl start testjig    # start it now
+
+# Stop it for this session only (re-enables on next boot)
+#
+# sudo systemctl stop testjig
+
+# Disable it entirely until you re-enable it
+#
+# sudo systemctl disable testjig
+
+# Restarting it
+#
+# sudo systemctl start testjig      # if you only stopped it
+# sudo systemctl enable --now testjig  # if you disabled it
+
+# Helpful commands
+#
+# sudo systemctl status testjig     # see if it's running, last exit code, etc.
+# journalctl -u testjig -f          # tail the logs from your script
+# journalctl -u testjig --since today  # logs since midnight
+
+[Unit]
+Description=Test Jig CI Runner
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/home/bunnie/code/testjig
+ExecStart=/root/.venv/bin/python3 /home/bunnie/code/testjig/ci.py --run-test final-test
+Restart=on-failure
+RestartSec=5s
+
+[Install]
+WantedBy=multi-user.target
