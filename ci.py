@@ -110,8 +110,8 @@ def main(adc):
                 draw.text((0, FONT_HEIGHT * 0), f"Dabao tester ({VERSION}) up!")
                 draw.text((0, FONT_HEIGHT * 2), "Insert device to start test...")
             
-            start_time = time.time()
             test.run_full_test()
+            finish_time = time.time()
 
             # wait for device to be removed
             fill = "white"
@@ -121,9 +121,9 @@ def main(adc):
                         if fill == "black":
                             draw.rectangle(oled.bounding_box, outline="white", fill="white")
                         if test.sn:
-                            draw.text((0, FONT_HEIGHT * 0), f"xxx FAIL FAIL FAIL ({test.sn}) ({time.time() - start_time:0.2f}s) xxx", fill=fill)
+                            draw.text((0, FONT_HEIGHT * 0), f"xxx FAIL FAIL FAIL ({test.sn}) ({time.time() - test.start_time:0.2f}s) xxx", fill=fill)
                         else:
-                            draw.text((0, FONT_HEIGHT * 0), f"xxx FAIL FAIL FAIL ({time.time() - start_time:0.2f}s) xxx", fill=fill)
+                            draw.text((0, FONT_HEIGHT * 0), f"xxx FAIL FAIL FAIL ({time.time() - test.start_time:0.2f}s) xxx", fill=fill)
                         for i, err in enumerate(test.errors):
                             draw.text((0, FONT_HEIGHT * (i+1)), err, fill=fill)
                 else:
@@ -134,7 +134,7 @@ def main(adc):
                         ver = next((l for l in test.results['final_version'].splitlines() if "Xous version" in l), None)
                         if ver:
                             draw.text((0, FONT_HEIGHT * 3), f"{ver}", fill=fill)
-                        draw.text((0, FONT_HEIGHT*4), f"Elapsed: {time.time() - start_time:0.2f}s", fill=fill)
+                        draw.text((0, FONT_HEIGHT*4), f"Test: {finish_time - test.start_time:0.2f}s / Waiting: {time.time() - finish_time:0.2f}s", fill=fill)
 
                 if GPIO.input(PIN_MAPPING['DUT_GND'][0]) == GPIO.HIGH:
                     break

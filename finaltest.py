@@ -120,7 +120,7 @@ class FinalTest(BaochipCIRunner):
                     break
                 time.sleep(0.1)
 
-            start_time = time.time()
+            self.start_time = start_time = time.time()
             with canvas(self.oled) as draw:
                 draw.text((5, FONT_HEIGHT * 1), "Power on")
             if not self.power_on(with_usb = False):
