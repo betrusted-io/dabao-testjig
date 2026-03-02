@@ -24,7 +24,7 @@ from luma.oled.device import ssd1322
 import luma.oled.device
 import os
 
-VERSION = "05/26/26"
+VERSION = "06/11/26"
 oled = None
 
 from luma.core.interface.serial import bitbang
