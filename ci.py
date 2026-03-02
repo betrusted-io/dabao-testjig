@@ -22,6 +22,7 @@ from luma.core.render import canvas
 from luma.core.interface.serial import bitbang
 from luma.oled.device import ssd1322
 import luma.oled.device
+import os
 
 VERSION = "03/01/26"
 oled = None
@@ -97,20 +98,37 @@ def main(adc):
         test = BdmaFuzz(adc, args.firmware_dir, channel)
         return test.run_full_test()
     elif args.run_test == 'final-test':
+        COMM_FAIL_THRESHOLD = 3
         test = FinalTest(adc, args.firmware_dir, oled, channel)
         if len(test.errors) != 0:
             with canvas(oled) as draw:
                 draw.text((0, FONT_HEIGHT * 0), f"Dabao tester ({VERSION}) INTERNAL ERROR")
                 draw.text((0, FONT_HEIGHT * 1), f"Contact bunnie@baochip.com for support")
             while True:
-                time.sleep(1)
+                time.sleep(15)
+                os.system("sudo reboot")
 
+        comm_fail_count = 0
         while True:
             with canvas(oled) as draw:
                 draw.text((0, FONT_HEIGHT * 0), f"Dabao tester ({VERSION}) up!")
                 draw.text((0, FONT_HEIGHT * 2), "Insert device to start test...")
             
-            test.run_full_test()
+            try:
+                result = test.run_full_test()
+                if result:
+                    comm_fail_count = 0
+            except CommException:
+                comm_fail_count += 1
+                logger.warning(f"CommException {comm_fail_count}/{COMM_FAIL_THRESHOLD}")
+                if comm_fail_count >= COMM_FAIL_THRESHOLD:
+                    with canvas(oled) as draw:
+                        draw.text((0, FONT_HEIGHT * 0), "Too many internal tester errors")
+                        draw.text((0, FONT_HEIGHT * 1), "Rebooting...")
+                        draw.text((0, FONT_HEIGHT * 3), "Contact bunnie@baochip.com if error continues")
+                    logger.error("Too many consecutive CommExceptions, rebooting...")
+                    os.system("sudo reboot")                
+            
             finish_time = time.time()
 
             # wait for device to be removed

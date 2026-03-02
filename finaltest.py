@@ -8,8 +8,9 @@ from luma.core.render import canvas
 import re
 from PIL import ImageFont
 
-CURRENT_LOW_LIMIT = 15
-CURRENT_HIGH_LIMIT = 55
+CURRENT_LOW_LIMIT = 15 # in mA
+CURRENT_HIGH_LIMIT = 55 # in mA
+OPERATOR_TIMEOUT = 20 # in seconds
 
 logger = logging.getLogger(__name__)
 
@@ -171,7 +172,7 @@ class FinalTest(BaochipCIRunner):
             if not acm_path:
                 logger.error("Initial serial DUT not found")
                 self.errors += ["Init failure (USB serial)"]
-                raise TestFail
+                raise CommException
             if not storage_info:
                 logger.error("Device did not re-enumerate with storage")
                 self.errors += ["Init failure (USB storage)"]
@@ -183,7 +184,7 @@ class FinalTest(BaochipCIRunner):
             if volume_label != "BAOCHIP":
                 logger.error(f"Expected volume label 'BAOCHIP', got '{volume_label}'")
                 self.errors += [f"BAOCHIP missing: {volume_label}"]
-                raise TestFail
+                raise CommException
             logging.info(f"{index} {time.time() - start_time:.2f}s"); index += 1; start_time = time.time()
             
             # Mount and flash applications
@@ -192,18 +193,18 @@ class FinalTest(BaochipCIRunner):
             if not mount_point:
                 logger.error("Failed to mount device")
                 self.errors += ["Failed to mount device"]
-                raise TestFail
+                raise CommException
                     
             if not self.device.copy_files([self.all_files['baremetal']], mount_point):
                 self.device.unmount_device(mount_point)
                 logger.error("Failed to copy application files")
                 self.errors += ["Couldn't copy test app"]
-                raise TestFail
+                raise CommException
             
             if not self.device.unmount_device(mount_point):
                 logger.error("Failed to unmount device")
                 self.errors += ["Couldn't unmount device"]
-                return TestFail
+                raise CommException
 
             logging.info(f"{index} {time.time() - start_time:.2f}s"); index += 1; start_time = time.time()
             logging.info("Operator interaction: BOOT")
@@ -212,7 +213,10 @@ class FinalTest(BaochipCIRunner):
                 self.operator_note("==== BOOT ---> ====", start = operator_timer)
                 if GPIO.input(PIN_MAPPING['DUT_PC13_N'][0]) == GPIO.LOW:
                     break
-                time.sleep(0.1)
+                if (time.time() - operator_timer) > OPERATOR_TIMEOUT:
+                    self.errors += ["Boot switch fail"]
+                    raise TestFail
+                time.sleep(0.05)
             logger.info("boot to baremetal")
             self.oled.clear()
             with canvas(self.oled) as draw:
@@ -246,7 +250,10 @@ class FinalTest(BaochipCIRunner):
                 self.operator_note("#### <--- RESET ####", start = operator_timer)
                 if GPIO.input(PIN_MAPPING['DUT_RST'][0]) == GPIO.LOW:
                     break
-                time.sleep(0.1)
+                if (time.time() - operator_timer) > OPERATOR_TIMEOUT:
+                    self.errors += ["Reset switch fail"]
+                    raise TestFail
+                time.sleep(0.05)
             logger.info("reset for OS load")
             self.oled.clear()
             with canvas(self.oled) as draw:
@@ -257,7 +264,7 @@ class FinalTest(BaochipCIRunner):
                 self.errors += ["Xous upload error"]
                 self.power_off()
                 self.print_results()
-                return False
+                raise CommException
             logging.info(f"{index} {time.time() - start_time:.2f}s"); index += 1; start_time = time.time()
             with canvas(self.oled) as draw:
                 draw.text((5, FONT_HEIGHT * 1), "Checking OS...")
@@ -265,7 +272,7 @@ class FinalTest(BaochipCIRunner):
                 self.errors += ["Final check fail"]
                 self.power_off()
                 self.print_results()
-                return False
+                raise CommException
             logging.info(f"{index} {time.time() - start_time:.2f}s"); index += 1; start_time = time.time()
 
             logger.info("=" * 80)
@@ -274,7 +281,15 @@ class FinalTest(BaochipCIRunner):
             # self.print_results() # only needed for debugging
             self.power_off()
             return True
-            
+
+        except CommException as e:
+            logger.error(f"{self.TEST_NAME} failed with CommException: {e}", exc_info=True)
+            self.errors += [f"Internal err: {e}"]
+            self.report_current()
+            self.power_off()
+            self.print_results()
+            raise  # re-raise so the caller can count it
+
         except Exception as e:
             logger.error(f"{self.TEST_NAME} failed with exception: {e}", exc_info=True)
             self.errors += [f"{e}"]
