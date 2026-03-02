@@ -2,11 +2,13 @@ import hashlib
 from datetime import datetime
 from pathlib import Path
 
-import serial
+import socket
 import threading
-import atexit
 import time
 import logging
+import atexit
+import subprocess
+import os
 
 from ci_core import TimeoutException
 from ci_core import BaochipCIRunner
@@ -24,133 +26,136 @@ def get_file_mtime(filepath):
     mtime = Path(filepath).stat().st_mtime
     return datetime.fromtimestamp(mtime).strftime('%Y-%m-%d %H:%M:%S')
 
+SOCKET_PATH = "/tmp/serial_bridge.sock"
+BRIDGE_BINARY = "/home/bunnie/code/testjig/crial_helper"
+
+def _ensure_bridge(port: str):
+    if os.path.exists(SOCKET_PATH):
+        try:
+            test = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            test.connect(SOCKET_PATH)
+            test.close()
+            return  # already up
+        except OSError:
+            os.unlink(SOCKET_PATH)  # stale socket
+
+    subprocess.Popen(
+        [BRIDGE_BINARY, port],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        start_new_session=True
+    )
+
+    deadline = time.time() + 5.0
+    while time.time() < deadline:
+        if os.path.exists(SOCKET_PATH):
+            try:
+                test = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+                test.connect(SOCKET_PATH)
+                test.close()
+                return  # up and accepting
+            except OSError:
+                pass
+        time.sleep(0.05)
+
+    raise RuntimeError("serial_bridge failed to start within 5s")
+
 
 class SerialLogger:
-    def __init__(self, port, logfile, baudrate=1_000_000):
-        self.ser = serial.Serial(port, baudrate, timeout=1)
+    KBD_DELAY = 0.15
+
+    def __init__(self, port: str, logfile: str, baudrate: int = 1_000_000):
+        _ensure_bridge(port)
+
+        self._sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        self._sock.connect(SOCKET_PATH)
+
         self.filename = logfile
-        self.f = open(logfile, 'w')
-        self.lock = threading.Lock()
         self.running = True
-        
+
+        self._send_lock = threading.Lock()
+        self._buf_lock = threading.Lock()
+        self._log_buf: list[str] = []
+        self._cap_buf: list[str] | None = None
+
         atexit.register(self.cleanup)
-        
-        # Start logging thread
-        self.thread = threading.Thread(target=self._read_serial, daemon=True)
-        self.thread.start()
-    
+        self._reader_thread = threading.Thread(target=self._read_serial, daemon=True)
+        self._reader_thread.start()
+
     def _read_serial(self):
-        try:
-            while self.running:
-                if not self.lock.locked():  # Only read if not sending command
-                    line = self.ser.readline().decode('utf-8', errors='ignore')
-                    if line:
-                        self.f.write(line)
-                        self.f.flush()
-                else:
-                    time.sleep(0.01)  # Small delay when locked
-        except:
-            pass
-    
-    def send_command(self, command: str, timeout: float = 1.0, expect_response=True) -> str:
-        """Send command using the same serial connection"""
-        with self.lock:  # Prevent logger from reading while we send/receive
+        buf = b''
+        while self.running:
             try:
-                # Clear any pending data
-                self.ser.reset_input_buffer()
-                
-                # Send command character-by-character; add an inital CR to clear buffer of stale characters
-                full_command = f"\r{command}\r"
-                for char in full_command:
-                    self.ser.write(char.encode('utf-8'))
-                    self.ser.flush()
-                    time.sleep(0.1)  # pause for keyboard relay
-                
-                if expect_response:
-                    self.ser.write("\r".encode('utf-8'))
-                    self.ser.flush()
-                    
-                    # Read response
-                    response = []
-                    start_time = time.time()
-                    
-                    while time.time() - start_time < timeout:
-                        chunk = self.ser.read(4096)
-                        if chunk:
-                            text = chunk.decode("utf-8", errors="ignore")
-                            response.append(text)
-                            if "Command not recognized" in text:
-                                break
-                    
-                    return "".join(response).strip()
-                else:
-                    return ""
-                    
-            except serial.SerialException as e:
-                print(f"Serial communication error: {e}")
+                chunk = self._sock.recv(4096)
+                if not chunk:
+                    logging.error("Bridge disconnected")
+                    self.running = False
+                    break
+
+                buf += chunk
+                while b'\n' in buf:
+                    line, buf = buf.split(b'\n', 1)
+                    decoded = (line + b'\n').decode('utf-8', errors='replace') \
+                                            .replace('\r\n', '\n').replace('\r', '\n')
+                    with self._buf_lock:
+                        self._log_buf.append(decoded)
+                        if self._cap_buf is not None:
+                            self._cap_buf.append(decoded)
+
+            except OSError as e:
+                if self.running:
+                    logging.error(f"Socket read error: {e}")
+                self.running = False
+                break
+
+    def send_command(self, command: str, timeout: float = 1.0, expect_response: bool = True) -> str:
+        with self._send_lock:
+            if expect_response:
+                with self._buf_lock:
+                    self._cap_buf = []
+
+            payload = b'\x01' + f"\r{command}\r".encode('utf-8')
+            self._sock.send(payload)
+
+            if not expect_response:
                 return ""
 
+            send_time = len(payload) * self.KBD_DELAY
+            time.sleep(send_time + timeout)
+
+            with self._buf_lock:
+                result = ''.join(self._cap_buf)
+                self._cap_buf = None
+
+            return result.strip()
+
     def clear_log(self):
-        """Clear the log file contents while keeping it open for future writes"""
-        with self.lock:  # Prevent reading/writing while clearing
-            self.f.seek(0)  # Go to beginning of file
-            self.f.truncate()  # Clear everything from current position onward
-            self.f.flush()  # Ensure it's written to disk
-        
-    def cleanup(self):
-        self.running = False
-        self.ser.close()
-        self.f.close()
+        with self._buf_lock:
+            self._log_buf.clear()
 
     def get_log(self) -> str:
-        """Get the current contents of the log file as a string"""
-        with self.lock:  # Prevent reading/writing while we read
-            # Flush any pending writes
-            self.f.flush()
-            
-            with open(self.filename, 'r') as f:
-                contents = f.read()
-            
-            return contents
+        with self._buf_lock:
+            return ''.join(self._log_buf)
 
-# def start_serial_logger(port, logfile):
-#     ser = serial.Serial(port, 1_000_000, timeout=1)  # adjust baud rate as needed
-#     f = open(logfile, 'w')
-#
-#     def cleanup():
-#         ser.close()
-#         f.close()
-#   
-#     atexit.register(cleanup)
-#   
-#     def read_serial():
-#         try:
-#             while True:
-#                 line = ser.readline().decode('utf-8', errors='ignore')
-#                 if line:
-#                     f.write(line)
-#                     f.flush()
-#         except:
-#             pass
-#
-#     thread = threading.Thread(target=read_serial, daemon=True)
-#     thread.start()
+    def commit_log(self):
+        with self._buf_lock:
+            data = ''.join(self._log_buf)
+        with open(self.filename, 'w') as f:
+            f.write(data)
 
-def wait_for_serial_output(logfile, target_string, timeout=5, instances=1, use_bookends=True, log=False):
-    if use_bookends:
-        target_string = BaochipCIRunner.BOOKEND_START + target_string + ',' + BaochipCIRunner.BOOKEND_END
-    start_time = time.time()
-    while time.time() - start_time < timeout:
-        try:
-            with open(logfile, 'r') as f:
-                content = f.read()
-                count = content.count(target_string)
-                if count >= instances:
-                    if log:
-                        logger.info(f"{target_string} found {count} times")
-                    return count
-        except:
-            pass
-        time.sleep(0.25)
-    
-    raise TimeoutException(f"'{target_string}' not found in {timeout}s")
+    def wait_for_output(self, target_string: str, timeout: float = 5.0, instances: int = 1, log: bool = True) -> int:
+        start_time = time.time()
+        while time.time() - start_time < timeout:
+            content = self.get_log()
+            count = content.count(target_string)
+            if count >= instances:
+                if log:
+                    logging.info(f"'{target_string}' found {count} times")
+                return count
+            time.sleep(0.25)
+        raise TimeoutError(f"'{target_string}' not found within {timeout}s")
+
+    def cleanup(self):
+        self.running = False
+        self._reader_thread.join(timeout=2)
+        self._sock.close()

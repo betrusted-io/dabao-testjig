@@ -24,8 +24,40 @@ from luma.oled.device import ssd1322
 import luma.oled.device
 import os
 
-VERSION = "03/01/26"
+VERSION = "05/26/26"
 oled = None
+
+from luma.core.interface.serial import bitbang
+class FlushingBitbang(bitbang):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+    # Every write has to be read back to force the writes to go all the
+    # way to the pins. Otherwise, when the CPU memory bus gets busy, the writes
+    # hang out in an outgoing write queue. When a write to the same location
+    # happens and the queue has pending entries, the original entry is replaced
+    # instead of being committed to the GPIO pins, causing the write to be lost.
+    # The read back forces the write queue to flush and retrieve the latest
+    # state from the pins, thus ensuring all writes make it to the pins.
+    def _write_bytes(self, data):
+        gpio = self._gpio
+        if self._CE:
+            gpio.output(self._CE, gpio.LOW)  # Active low
+            gpio.input(self._CE)
+
+        for byte in data:
+            for _ in range(8):
+                gpio.output(self._SDA, byte & 0x80)
+                gpio.input(self._SDA)
+                gpio.output(self._SCLK, gpio.HIGH)
+                gpio.input(self._SCLK)
+                byte <<= 1
+                gpio.output(self._SCLK, gpio.LOW)
+                gpio.input(self._SCLK)
+
+        if self._CE:
+            gpio.output(self._CE, gpio.HIGH)
+            gpio.input(self._CE)
 
 def main(adc):
     parser = argparse.ArgumentParser(description="CI automation script")
@@ -78,7 +110,7 @@ def main(adc):
 
     with canvas(oled) as draw:
         draw.text((0, FONT_HEIGHT * 0), f"Dabao tester ({VERSION}) starting...")
-    
+
     GPIO.output(PIN_MAPPING['LOCAL_PC13_N'][0], GPIO.LOW)
     time.sleep(1)
     GPIO.output(PIN_MAPPING['LOCAL_PC13_N'][0], GPIO.HIGH)
@@ -113,7 +145,7 @@ def main(adc):
             with canvas(oled) as draw:
                 draw.text((0, FONT_HEIGHT * 0), f"Dabao tester ({VERSION}) up!")
                 draw.text((0, FONT_HEIGHT * 2), "Insert device to start test...")
-            
+
             try:
                 result = test.run_full_test()
                 if result:
@@ -127,8 +159,8 @@ def main(adc):
                         draw.text((0, FONT_HEIGHT * 1), "Rebooting...")
                         draw.text((0, FONT_HEIGHT * 3), "Contact bunnie@baochip.com if error continues")
                     logger.error("Too many consecutive CommExceptions, rebooting...")
-                    os.system("sudo reboot")                
-            
+                    os.system("sudo reboot")
+
             finish_time = time.time()
 
             # wait for device to be removed
@@ -161,6 +193,13 @@ def main(adc):
                     fill = "black"
                 else:
                     fill = "white"
+
+            if False: # for debugging at command line
+                for name, text in test.results.items():
+                    logging.info(f"{name}: {text}")
+                for err in test.errors:
+                    logging.info(f"Err: {err}")
+
             test.errors = []
             test.results = {}
             test.init_current = None
@@ -174,7 +213,7 @@ if __name__ == "__main__":
     cleaned_up = False
     try:
         adc = ADS1115()
-        oled = ssd1322(bitbang(SCLK=8, SDA=25, CE=7, DC=1, RST=12))        
+        oled = ssd1322(FlushingBitbang(SCLK=8, SDA=25, CE=7, DC=1, RST=12))
         if main(adc):
             exit(0)
     except KeyboardInterrupt:
