@@ -35,6 +35,7 @@ WorkingDirectory=/home/bunnie/code/testjig
 ExecStart=/root/.venv/bin/python3 /home/bunnie/code/testjig/ci.py --run-test final-test
 Restart=on-failure
 RestartSec=5s
+ExecStartPre=/usr/bin/udevadm settle
 
 [Install]
 WantedBy=multi-user.target
